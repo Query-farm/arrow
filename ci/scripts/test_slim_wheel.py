@@ -10,6 +10,7 @@ Options:
     --quick    Only run smoke tests (skip pytest suite)
 """
 
+import os
 import subprocess
 import sys
 
@@ -118,6 +119,10 @@ def run_pytest():
     import pyarrow
 
     test_dir = str(pyarrow.__path__[0]) + "/tests"
+
+    if not os.path.isdir(test_dir):
+        print("Test suite not installed (tests/ removed from wheel), skipping pytest")
+        return 0
 
     test_files = [
         "test_array.py",
