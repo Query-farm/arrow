@@ -199,22 +199,13 @@ jobs:
           python -m build --wheel
 
           # Strip debug symbols from .so files inside the wheel
-          pip install wheel-filename
           WHEEL_PATH=$(ls "$WORK_DIR/python/dist/"*.whl)
           STRIP_DIR=$(mktemp -d)
           cd "$STRIP_DIR"
           python -m zipfile -e "$WHEEL_PATH" .
           find . -name '*.so' -exec strip --strip-debug {} \;
           rm "$WHEEL_PATH"
-          python -c "
-import pathlib, zipfile, os
-whl = pathlib.Path('$WHEEL_PATH')
-with zipfile.ZipFile(whl, 'w', zipfile.ZIP_DEFLATED) as zf:
-    for root, dirs, files in os.walk('.'):
-        for f in files:
-            fp = os.path.join(root, f)
-            zf.write(fp, fp[2:])  # strip leading ./
-"
+          python -c "import zipfile, os; zf=zipfile.ZipFile('$WHEEL_PATH','w',zipfile.ZIP_DEFLATED); [zf.write(os.path.join(r,f),os.path.join(r,f)[2:]) for r,_,fs in os.walk('.') for f in fs]; zf.close()"
 
           # Repair wheel (bundles system deps, tags as manylinux)
           pip install auditwheel
