@@ -151,21 +151,15 @@ jobs:
       - name: Compute version
         id: version
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           if [ -n "${{ inputs.arrow_version }}" ]; then
             echo "version=${{ inputs.arrow_version }}" >> $GITHUB_OUTPUT
           else
-            # Derive from git tags
-            VERSION=$(${{ steps.python.outputs.bin }}/python -c "
-          import subprocess, re
-          desc = subprocess.check_output(
-              ['git', 'describe', '--tags', '--long', '--match', 'apache-arrow-[0-9]*.*'],
-              text=True
-          ).strip()
-          m = re.match(r'apache-arrow-(.+)-\d+-g[0-9a-f]+', desc)
-          base = m.group(1) if m else '0.0.0'
-          from datetime import date
-          print(f'{base}.post{date.today().strftime(\"%Y%m%d\")}')
-          ")
+            # Derive from git tags, with fallback
+            VERSION=$(git describe --tags --long --match 'apache-arrow-[0-9]*.*' 2>/dev/null \
+              | sed 's/^apache-arrow-//; s/-[0-9]*-g[0-9a-f]*$//' \
+              || echo "24.0.0")
+            VERSION="${VERSION}.post$(date +%Y%m%d)"
             echo "version=$VERSION" >> $GITHUB_OUTPUT
           fi
           echo "Version: $(cat $GITHUB_OUTPUT | grep version)"
