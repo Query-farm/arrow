@@ -212,7 +212,11 @@ jobs:
           ls -la /tmp/arrow-dist/lib*/libarrow* 2>/dev/null || echo "No libs found in /tmp/arrow-dist"
           echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
           auditwheel show "$WORK_DIR/python/dist/"*.whl || true
-          auditwheel repair "$WORK_DIR/python/dist/"*.whl -w /tmp/repaired/
+          # Exclude Arrow libs already bundled via PYARROW_BUNDLE_ARROW_CPP
+          auditwheel repair "$WORK_DIR/python/dist/"*.whl -w /tmp/repaired/ \
+            --exclude libarrow.so.2400 \
+            --exclude libarrow_compute.so.2400 \
+            --exclude libarrow_python.so
 
           # Copy to output
           mkdir -p $GITHUB_WORKSPACE/dist
