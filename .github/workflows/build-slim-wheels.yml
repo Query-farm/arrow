@@ -190,9 +190,9 @@ jobs:
 
           # Build in isolated temp dir
           WORK_DIR=$(mktemp -d)
-          rsync -a --exclude='build/' --exclude='dist/' --exclude='__pycache__/' \
-            python/ "$WORK_DIR/python/"
-          cp -r cpp/cmake_modules "$WORK_DIR/python/cmake_modules"
+          cp -aL python/ "$WORK_DIR/python/"
+          rm -rf "$WORK_DIR/python/build" "$WORK_DIR/python/dist" \
+                 "$WORK_DIR/python/__pycache__"
           cp "$WORK_DIR/python/pyproject.slim.toml" "$WORK_DIR/python/pyproject.toml"
 
           cd "$WORK_DIR/python"
