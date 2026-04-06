@@ -1,0 +1,154 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+[build-system]
+requires = [
+    "scikit-build-core",
+    "cython >= 3.1",
+    # Needed for build-time stub docstring extraction
+    "libcst>=1.8.6",
+    "numpy>=1.25",
+    "setuptools_scm[toml]>=8",
+]
+# We use a really simple build backend wrapper over scikit-build-core
+# to solve licenses to work around links not being included in sdists.
+build-backend = "_build_backend"
+backend-path = ["."]
+
+[project]
+name = "query_farm_pyarrow_slim"
+dynamic = ["version"]
+requires-python = ">=3.10"
+description = "Slim Python library for Apache Arrow (no Parquet/Flight/Substrait/Dataset/CSV/JSON). Cannot be installed alongside pyarrow."
+readme = {file = "README.md", content-type = "text/markdown"}
+license = "Apache-2.0"
+license-files = [
+    "LICENSE.txt",
+    "NOTICE.txt",
+]
+classifiers  = [
+    'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
+    'Programming Language :: Python :: 3.13',
+    'Programming Language :: Python :: 3.14',
+    'Programming Language :: Python :: Free Threading :: 2 - Beta',
+]
+maintainers = [
+    {name = "Query Farm", email = "support@queryfarm.com"}
+]
+
+[project.urls]
+Homepage = "https://queryfarm.com/"
+Repository = "https://github.com/query-farm/arrow"
+
+[dependency-groups]
+test = [
+    'pytest',
+    'hypothesis',
+    'cffi',
+    'pytz',
+]
+
+[tool.numpydoc_validation]
+checks = [
+    "GL10",
+    "PR01",
+    "PR03",
+    "PR04",
+    "PR05",
+    "PR10",
+    "RT03",
+    "YD01",
+]
+exclude = [
+    '\._.*$',
+]
+
+[tool.scikit-build]
+cmake.build-type = "Release"
+metadata.version.provider = "scikit_build_core.metadata.setuptools_scm"
+sdist.include = ["pyarrow/_generated_version.py", "cmake_modules/", "pyarrow-stubs/"]
+wheel.packages = ["pyarrow"]
+wheel.install-dir = "pyarrow"
+
+[tool.scikit-build.cmake.define]
+PYARROW_BUNDLE_ARROW_CPP = {env = "PYARROW_BUNDLE_ARROW_CPP", default = "OFF"}
+PYARROW_BUNDLE_CYTHON_CPP = {env = "PYARROW_BUNDLE_CYTHON_CPP", default = "OFF"}
+PYARROW_GENERATE_COVERAGE = {env = "PYARROW_GENERATE_COVERAGE", default = "OFF"}
+PYARROW_CXXFLAGS = {env = "PYARROW_CXXFLAGS", default = ""}
+PYARROW_REQUIRE_STUB_DOCSTRINGS = {env = "PYARROW_REQUIRE_STUB_DOCSTRINGS", default = "OFF"}
+# Disable excluded features
+PYARROW_PARQUET = "OFF"
+PYARROW_PARQUET_ENCRYPTION = "OFF"
+PYARROW_FLIGHT = "OFF"
+PYARROW_SUBSTRAIT = "OFF"
+PYARROW_DATASET = "OFF"
+PYARROW_ACERO = "OFF"
+PYARROW_ORC = "OFF"
+PYARROW_CSV = "OFF"
+PYARROW_JSON = "OFF"
+PYARROW_AZURE = "OFF"
+PYARROW_GCS = "OFF"
+PYARROW_S3 = "OFF"
+PYARROW_HDFS = "OFF"
+
+[tool.setuptools_scm]
+root = '..'
+version_file = 'pyarrow/_generated_version.py'
+version_scheme = 'guess-next-dev'
+git_describe_command = 'git describe --dirty --tags --long --match "apache-arrow-[0-9]*.*"'
+fallback_version = '24.0.0a0'
+
+# TODO: Enable type checking once stubs are merged
+[tool.mypy]
+files = ["pyarrow-stubs"]
+mypy_path = "$MYPY_CONFIG_FILE_DIR/pyarrow-stubs"
+exclude = [
+    "^pyarrow/",
+    "^benchmarks/",
+    "^examples/",
+    "^scripts/",
+]
+
+# TODO: Enable type checking once stubs are merged
+[tool.pyright]
+pythonPlatform = "All"
+pythonVersion = "3.10"
+include = ["pyarrow-stubs"]
+exclude = [
+    "pyarrow",
+    "benchmarks",
+    "examples",
+    "scripts",
+    "build",
+]
+stubPath = "pyarrow-stubs"
+typeCheckingMode = "basic"
+
+# TODO: Enable type checking once stubs are merged
+[tool.ty.environment]
+extra-paths = ["pyarrow-stubs"]
+
+[tool.ty.src]
+include = ["pyarrow-stubs"]
+exclude = [
+    "pyarrow",
+    "benchmarks",
+    "examples",
+    "scripts",
+]

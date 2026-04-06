@@ -34,6 +34,32 @@ import os as _os
 import platform as _platform
 import sys as _sys
 
+
+def _check_pyarrow_conflicts():
+    import importlib.metadata as _metadata
+    _PYARROW_DISTRIBUTIONS = ["pyarrow", "query_farm_pyarrow_slim"]
+    _installed = []
+    for _dist_name in _PYARROW_DISTRIBUTIONS:
+        try:
+            _metadata.distribution(_dist_name)
+            _installed.append(_dist_name)
+        except _metadata.PackageNotFoundError:
+            pass
+    if len(_installed) > 1:
+        import warnings
+        warnings.warn(
+            f"Multiple PyArrow distributions are installed: {', '.join(_installed)}. "
+            "This will cause unexpected behavior. Please uninstall all but one:\n"
+            f"  pip uninstall {' '.join(_installed)}\n"
+            "Then reinstall the one you want.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+
+_check_pyarrow_conflicts()
+del _check_pyarrow_conflicts
+
 try:
     from ._generated_version import version as __version__
 except ImportError:

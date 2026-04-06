@@ -1,0 +1,309 @@
+name: Build query_farm_pyarrow_slim wheels
+
+on:
+  push:
+    branches: [query-farm-pyarrow-slim]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      arrow_version:
+        description: 'Version string (e.g., "24.0.0.post20260406")'
+        required: false
+        default: ''
+
+# Cancel in-progress runs on the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Arrow C++ build flags (shared across jobs)
+  ARROW_CMAKE_FLAGS: >-
+    -DCMAKE_BUILD_TYPE=Release
+    -DARROW_BUILD_SHARED=ON
+    -DARROW_BUILD_STATIC=OFF
+    -DARROW_IPC=ON
+    -DARROW_COMPUTE=ON
+    -DARROW_FILESYSTEM=ON
+    -DARROW_CSV=ON
+    -DARROW_JSON=ON
+    -DARROW_WITH_ZSTD=ON
+    -DARROW_WITH_BROTLI=OFF
+    -DARROW_WITH_SNAPPY=OFF
+    -DARROW_WITH_BZ2=OFF
+    -DARROW_WITH_LZ4=OFF
+    -DARROW_WITH_ZLIB=OFF
+    -DARROW_WITH_RE2=OFF
+    -DARROW_PARQUET=OFF
+    -DARROW_FLIGHT=OFF
+    -DARROW_FLIGHT_SQL=OFF
+    -DARROW_DATASET=OFF
+    -DARROW_ACERO=OFF
+    -DARROW_ORC=OFF
+    -DARROW_SUBSTRAIT=OFF
+    -DARROW_GANDIVA=OFF
+    -DARROW_S3=OFF
+    -DARROW_GCS=OFF
+    -DARROW_AZURE=OFF
+    -DARROW_HDFS=OFF
+    -DARROW_CUDA=OFF
+    -DARROW_JEMALLOC=OFF
+    -DARROW_SIMD_LEVEL=DEFAULT
+    -DARROW_RUNTIME_SIMD_LEVEL=MAX
+    -DARROW_BUILD_TESTS=OFF
+    -DARROW_BUILD_BENCHMARKS=OFF
+    -DARROW_BUILD_EXAMPLES=OFF
+
+jobs:
+  # ===========================================================================
+  # Build Arrow C++ (one per platform/arch)
+  # ===========================================================================
+  build-cpp-linux:
+    name: "C++ Linux ${{ matrix.arch }}"
+    runs-on: ${{ matrix.runs-on }}
+    container: quay.io/pypa/manylinux_2_28_${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runs-on: ubuntu-latest
+          - arch: aarch64
+            runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for setuptools_scm
+
+      - name: Install build tools
+        run: |
+          yum install -y cmake ninja-build ccache
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: /root/.cache/ccache
+          key: ccache-slim-cpp-linux-${{ matrix.arch }}-${{ github.sha }}
+          restore-keys: ccache-slim-cpp-linux-${{ matrix.arch }}-
+
+      - name: Build Arrow C++
+        run: |
+          export NPROC=$(nproc)
+          mkdir -p cpp/build-slim /tmp/arrow-dist
+          cmake -S cpp -B cpp/build-slim \
+            -DCMAKE_INSTALL_PREFIX=/tmp/arrow-dist \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            ${{ env.ARROW_CMAKE_FLAGS }}
+          cmake --build cpp/build-slim --target install -j $NPROC
+
+      - name: Upload Arrow C++ install
+        uses: actions/upload-artifact@v4
+        with:
+          name: arrow-cpp-linux-${{ matrix.arch }}
+          path: /tmp/arrow-dist
+          retention-days: 1
+
+  # ===========================================================================
+  # Build Python wheels
+  # ===========================================================================
+  build-wheels-linux:
+    name: "Wheel Linux ${{ matrix.arch }} cp${{ matrix.python }}"
+    needs: build-cpp-linux
+    runs-on: ${{ matrix.runs-on }}
+    container: quay.io/pypa/manylinux_2_28_${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+        python: ['3.10', '3.11', '3.12', '3.13', '3.14']
+        include:
+          - arch: x86_64
+            runs-on: ubuntu-latest
+          - arch: aarch64
+            runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Arrow C++ install
+        uses: actions/download-artifact@v4
+        with:
+          name: arrow-cpp-linux-${{ matrix.arch }}
+          path: /tmp/arrow-dist
+
+      - name: Resolve Python path
+        id: python
+        run: |
+          # Map version to cpython tag
+          PYVER=$(echo "${{ matrix.python }}" | tr -d '.')
+          PYBIN="/opt/python/cp${PYVER}-cp${PYVER}/bin"
+          if [ ! -d "$PYBIN" ]; then
+            echo "Python cp${PYVER} not found in manylinux image"
+            ls /opt/python/
+            exit 1
+          fi
+          echo "bin=$PYBIN" >> $GITHUB_OUTPUT
+          echo "Using Python: $PYBIN/python"
+
+      - name: Compute version
+        id: version
+        run: |
+          if [ -n "${{ inputs.arrow_version }}" ]; then
+            echo "version=${{ inputs.arrow_version }}" >> $GITHUB_OUTPUT
+          else
+            # Derive from git tags
+            VERSION=$(${{ steps.python.outputs.bin }}/python -c "
+          import subprocess, re
+          desc = subprocess.check_output(
+              ['git', 'describe', '--tags', '--long', '--match', 'apache-arrow-[0-9]*.*'],
+              text=True
+          ).strip()
+          m = re.match(r'apache-arrow-(.+)-\d+-g[0-9a-f]+', desc)
+          base = m.group(1) if m else '0.0.0'
+          from datetime import date
+          print(f'{base}.post{date.today().strftime(\"%Y%m%d\")}')
+          ")
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          fi
+          echo "Version: $(cat $GITHUB_OUTPUT | grep version)"
+
+      - name: Build wheel
+        env:
+          ARROW_HOME: /tmp/arrow-dist
+          CMAKE_PREFIX_PATH: /tmp/arrow-dist
+          PYARROW_BUNDLE_ARROW_CPP: '1'
+          PYARROW_WITH_PARQUET: '0'
+          PYARROW_WITH_PARQUET_ENCRYPTION: '0'
+          PYARROW_WITH_FLIGHT: '0'
+          PYARROW_WITH_SUBSTRAIT: '0'
+          PYARROW_WITH_DATASET: '0'
+          PYARROW_WITH_ACERO: '0'
+          PYARROW_WITH_ORC: '0'
+          PYARROW_WITH_CSV: '0'
+          PYARROW_WITH_JSON: '0'
+          PYARROW_WITH_AZURE: '0'
+          PYARROW_WITH_GCS: '0'
+          PYARROW_WITH_S3: '0'
+          PYARROW_WITH_HDFS: '0'
+          SETUPTOOLS_SCM_PRETEND_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          export PATH="${{ steps.python.outputs.bin }}:$PATH"
+          pip install build scikit-build-core "cython>=3.1" "numpy>=1.25" \
+                      "setuptools_scm[toml]>=8" "libcst>=1.8.6"
+
+          # Build in isolated temp dir
+          WORK_DIR=$(mktemp -d)
+          rsync -a --exclude='build/' --exclude='dist/' --exclude='__pycache__/' \
+            python/ "$WORK_DIR/python/"
+          cp -r cpp/cmake_modules "$WORK_DIR/python/cmake_modules"
+          cp "$WORK_DIR/python/pyproject.slim.toml" "$WORK_DIR/python/pyproject.toml"
+
+          cd "$WORK_DIR/python"
+          python -m build --wheel
+
+          # Strip debug symbols
+          mkdir -p /tmp/strip-work
+          cd /tmp/strip-work
+          unzip "$WORK_DIR/python/dist/"*.whl
+          find . -name '*.so' -exec strip --strip-debug {} \;
+          # Repack
+          rm "$WORK_DIR/python/dist/"*.whl
+          cd /tmp/strip-work
+          zip -r "$WORK_DIR/python/dist/stripped.whl" .
+          # Rename back
+          ORIG_NAME=$(cd "$WORK_DIR/python/dist" && ls *.whl | head -1)
+          # The zip is named stripped.whl, we'll let auditwheel rename it
+
+          # Repair wheel (bundles system deps, tags as manylinux)
+          mkdir -p /tmp/repaired
+          pip install auditwheel
+          auditwheel repair "$WORK_DIR/python/dist/"*.whl -w /tmp/repaired/
+
+          # Copy to output
+          mkdir -p $GITHUB_WORKSPACE/dist
+          cp /tmp/repaired/*.whl $GITHUB_WORKSPACE/dist/
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-linux-${{ matrix.arch }}-cp${{ matrix.python }}
+          path: dist/*.whl
+          retention-days: 7
+
+  # ===========================================================================
+  # Test wheels
+  # ===========================================================================
+  test-wheels-linux:
+    name: "Test Linux ${{ matrix.arch }} cp${{ matrix.python }}"
+    needs: build-wheels-linux
+    runs-on: ${{ matrix.runs-on }}
+    container: quay.io/pypa/manylinux_2_28_${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+        python: ['3.10', '3.11', '3.12', '3.13', '3.14']
+        include:
+          - arch: x86_64
+            runs-on: ubuntu-latest
+          - arch: aarch64
+            runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve Python path
+        id: python
+        run: |
+          PYVER=$(echo "${{ matrix.python }}" | tr -d '.')
+          PYBIN="/opt/python/cp${PYVER}-cp${PYVER}/bin"
+          echo "bin=$PYBIN" >> $GITHUB_OUTPUT
+
+      - name: Download wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux-${{ matrix.arch }}-cp${{ matrix.python }}
+          path: dist/
+
+      - name: Install and test
+        run: |
+          export PATH="${{ steps.python.outputs.bin }}:$PATH"
+          python -m venv /tmp/test-venv
+          source /tmp/test-venv/bin/activate
+          pip install dist/*.whl
+          pip install pytest hypothesis cffi pytz pandas
+
+          # Smoke tests
+          python ci/scripts/test_slim_wheel.py --quick
+
+          # Full test suite
+          python ci/scripts/test_slim_wheel.py
+
+  # ===========================================================================
+  # Publish to PyPI (only on release)
+  # ===========================================================================
+  publish:
+    name: "Publish to PyPI"
+    needs: test-wheels-linux
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # For trusted publishing
+    steps:
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist/
+          merge-multiple: true
+
+      - name: List wheels
+        run: ls -lh dist/*.whl
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
