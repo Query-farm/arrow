@@ -98,11 +98,14 @@ jobs:
             ${{ env.ARROW_CMAKE_FLAGS }}
           cmake --build cpp/build-slim --target install -j $NPROC
 
+      - name: Tar Arrow C++ install (preserves symlinks)
+        run: tar -cf /tmp/arrow-dist.tar -C /tmp arrow-dist
+
       - name: Upload Arrow C++ install
         uses: actions/upload-artifact@v4
         with:
           name: arrow-cpp-linux-${{ matrix.arch }}
-          path: /tmp/arrow-dist
+          path: /tmp/arrow-dist.tar
           retention-days: 1
 
   # ===========================================================================
@@ -132,7 +135,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: arrow-cpp-linux-${{ matrix.arch }}
-          path: /tmp/arrow-dist
+          path: /tmp
+
+      - name: Extract Arrow C++ install
+        run: tar -xf /tmp/arrow-dist.tar -C /tmp
 
       - name: Resolve Python path
         id: python
@@ -198,10 +204,14 @@ jobs:
           cd "$WORK_DIR/python"
           python -m build --wheel
 
-          # Repair wheel (bundles system deps, tags as manylinux)
+          # Repair wheel (tags as manylinux, bundles any non-bundled deps)
           pip install auditwheel
           mkdir -p /tmp/repaired
-          export LD_LIBRARY_PATH="/tmp/arrow-dist/lib:${LD_LIBRARY_PATH:-}"
+          export LD_LIBRARY_PATH="/tmp/arrow-dist/lib:/tmp/arrow-dist/lib64:${LD_LIBRARY_PATH:-}"
+          echo "Arrow libs available:"
+          ls -la /tmp/arrow-dist/lib*/libarrow* 2>/dev/null || echo "No libs found in /tmp/arrow-dist"
+          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+          auditwheel show "$WORK_DIR/python/dist/"*.whl || true
           auditwheel repair "$WORK_DIR/python/dist/"*.whl -w /tmp/repaired/
 
           # Copy to output
