@@ -198,23 +198,28 @@ jobs:
           cd "$WORK_DIR/python"
           python -m build --wheel
 
-          # Strip debug symbols
-          mkdir -p /tmp/strip-work
-          cd /tmp/strip-work
-          unzip "$WORK_DIR/python/dist/"*.whl
+          # Strip debug symbols from .so files inside the wheel
+          pip install wheel-filename
+          WHEEL_PATH=$(ls "$WORK_DIR/python/dist/"*.whl)
+          STRIP_DIR=$(mktemp -d)
+          cd "$STRIP_DIR"
+          python -m zipfile -e "$WHEEL_PATH" .
           find . -name '*.so' -exec strip --strip-debug {} \;
-          # Repack
-          rm "$WORK_DIR/python/dist/"*.whl
-          cd /tmp/strip-work
-          zip -r "$WORK_DIR/python/dist/stripped.whl" .
-          # Rename back
-          ORIG_NAME=$(cd "$WORK_DIR/python/dist" && ls *.whl | head -1)
-          # The zip is named stripped.whl, we'll let auditwheel rename it
+          rm "$WHEEL_PATH"
+          python -c "
+import pathlib, zipfile, os
+whl = pathlib.Path('$WHEEL_PATH')
+with zipfile.ZipFile(whl, 'w', zipfile.ZIP_DEFLATED) as zf:
+    for root, dirs, files in os.walk('.'):
+        for f in files:
+            fp = os.path.join(root, f)
+            zf.write(fp, fp[2:])  # strip leading ./
+"
 
           # Repair wheel (bundles system deps, tags as manylinux)
-          mkdir -p /tmp/repaired
           pip install auditwheel
-          auditwheel repair "$WORK_DIR/python/dist/"*.whl -w /tmp/repaired/
+          mkdir -p /tmp/repaired
+          auditwheel repair "$WHEEL_PATH" -w /tmp/repaired/
 
           # Copy to output
           mkdir -p $GITHUB_WORKSPACE/dist
