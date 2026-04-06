@@ -208,19 +208,20 @@ jobs:
           pip install auditwheel
           mkdir -p /tmp/repaired
           export LD_LIBRARY_PATH="/tmp/arrow-dist/lib:/tmp/arrow-dist/lib64:${LD_LIBRARY_PATH:-}"
-          echo "Arrow libs available:"
-          ls -la /tmp/arrow-dist/lib*/libarrow* 2>/dev/null || echo "No libs found in /tmp/arrow-dist"
-          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
-          auditwheel show "$WORK_DIR/python/dist/"*.whl || true
           # Exclude Arrow libs already bundled via PYARROW_BUNDLE_ARROW_CPP
           auditwheel repair "$WORK_DIR/python/dist/"*.whl -w /tmp/repaired/ \
             --exclude libarrow.so.2400 \
             --exclude libarrow_compute.so.2400 \
             --exclude libarrow_python.so
 
+          # Post-process: remove headers/tests, fix symlink duplicates
+          mkdir -p /tmp/final
+          python $GITHUB_WORKSPACE/ci/scripts/slim_wheel_postprocess.py \
+            /tmp/repaired/*.whl /tmp/final/
+
           # Copy to output
           mkdir -p $GITHUB_WORKSPACE/dist
-          cp /tmp/repaired/*.whl $GITHUB_WORKSPACE/dist/
+          cp /tmp/final/*.whl $GITHUB_WORKSPACE/dist/
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
