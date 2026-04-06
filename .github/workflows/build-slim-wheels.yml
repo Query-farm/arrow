@@ -198,20 +198,11 @@ jobs:
           cd "$WORK_DIR/python"
           python -m build --wheel
 
-          # Strip debug symbols from .so files inside the wheel
-          WHEEL_PATH=$(ls "$WORK_DIR/python/dist/"*.whl)
-          STRIP_DIR=$(mktemp -d)
-          cd "$STRIP_DIR"
-          python -m zipfile -e "$WHEEL_PATH" .
-          find . -name '*.so' -exec strip --strip-debug {} \;
-          rm "$WHEEL_PATH"
-          python -c "import zipfile, os; zf=zipfile.ZipFile('$WHEEL_PATH','w',zipfile.ZIP_DEFLATED); [zf.write(os.path.join(r,f),os.path.join(r,f)[2:]) for r,_,fs in os.walk('.') for f in fs]; zf.close()"
-
           # Repair wheel (bundles system deps, tags as manylinux)
           pip install auditwheel
           mkdir -p /tmp/repaired
           export LD_LIBRARY_PATH="/tmp/arrow-dist/lib:${LD_LIBRARY_PATH:-}"
-          auditwheel repair "$WHEEL_PATH" -w /tmp/repaired/
+          auditwheel repair "$WORK_DIR/python/dist/"*.whl -w /tmp/repaired/
 
           # Copy to output
           mkdir -p $GITHUB_WORKSPACE/dist
